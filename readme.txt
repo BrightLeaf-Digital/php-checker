@@ -3,7 +3,7 @@ Contributors: eitanatbrightleaf
 Tags: php, compatibility, plugins, themes, scan
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -63,6 +63,10 @@ No. Scans advance via AJAX polling while the Tools page is open.
 All analysis runs locally on your server. No data is sent to external services by this plugin.
 
 == Changelog ==
+
+= 1.0.1 =
+- Add support for PHP 8.5
+
 = 1.0.0 =
 - Initial release
 - Scans plugins and themes against target PHP versions (8.0–8.4)
