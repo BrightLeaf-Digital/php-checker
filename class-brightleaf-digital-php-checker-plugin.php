@@ -40,6 +40,9 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
      * - Registers AJAX handler for scans.
      */
 	public static function init(): void {
+		if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
+			require_once __DIR__ . '/vendor/autoload.php';
+		}
 		add_action( 'admin_menu', [ __CLASS__, 'register_tools_page' ] );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_bootstrap' ] );
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
@@ -120,7 +123,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
      * @return array<string> Target versions supported by the scanner.
      */
  	private static function get_available_targets(): array {
-		return [ '8.0', '8.1', '8.2', '8.3', '8.4' ];
+		return [ '8.0', '8.1', '8.2', '8.3', '8.4', '8.5' ];
 	}
 
 	/**
