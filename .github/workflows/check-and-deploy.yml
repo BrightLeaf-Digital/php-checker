@@ -29,7 +29,9 @@ jobs:
       - name: PCP
         uses: wordpress/plugin-check-action@v1
         with:
-          exclude-files: '.gitignore'
+          exclude-files: |
+            .gitignore
+            .wp-env.json
   get_version:
     needs: pcp
     runs-on: ubuntu-latest
