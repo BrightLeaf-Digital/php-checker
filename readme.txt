@@ -1,9 +1,9 @@
 === BrightLeaf Digital PHP Compatibility Scanner ===
 Contributors: eitanatbrightleaf
 Tags: php, compatibility, plugins, themes, scan
-Tested up to: 6.9
+Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -68,6 +68,14 @@ No. Scans advance via AJAX polling while the Tools page is open.
 All analysis runs locally on your server. No data is sent to external services by this plugin.
 
 == Changelog ==
+
+= 1.0.2 | Oct 22, 2026 =
+- Fix: scans reported every plugin and theme as compatible because the scanning engine did not load.
+- Fix: a scan that cannot run is now reported as failed instead of compatible.
+- Single-file plugins (such as Hello Dolly) can now be scanned and show a result badge.
+- Temporary scan report files are now cleaned up after each scan.
+- Tested with WordPress 7.1 and PHP 8.5.
+- Corrected the menu and folder names in the installation steps.
 
 = 1.0.1 =
 - Add support for PHP 8.5
