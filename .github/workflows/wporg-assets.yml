@@ -1,0 +1,18 @@
+name: Update WordPress.org Assets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.wordpress-org/**'
+  workflow_dispatch:
+
+jobs:
+  assets:
+    uses: BrightLeaf-Digital/.github/.github/workflows/wporg-assets.yml@main
+    with:
+      plugin_slug: 'brightleaf-digital-php-compatibility-scanner'
+    secrets:
+      WP_SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+      WP_SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}

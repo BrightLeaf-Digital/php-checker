@@ -9,7 +9,9 @@
  * Requires PHP: 7.4
  */
 
+use PHP_CodeSniffer\Config;
 use PHP_CodeSniffer\Runner;
+use PHPCompatibility\Helpers\ScannedCode;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -42,6 +44,10 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	public static function init(): void {
 		if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 			require_once __DIR__ . '/vendor/autoload.php';
+		}
+		// PHPCS 3.x does not register its classes with Composer; it ships its own autoloader.
+		if ( ! class_exists( Runner::class ) && file_exists( __DIR__ . '/vendor/squizlabs/php_codesniffer/autoload.php' ) ) {
+			require_once __DIR__ . '/vendor/squizlabs/php_codesniffer/autoload.php';
 		}
 		add_action( 'admin_menu', [ __CLASS__, 'register_tools_page' ] );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_bootstrap' ] );
@@ -221,6 +227,33 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	}
 
 	/**
+	 * Reset the static state PHPCS and PHPCompatibility keep between runs.
+	 *
+	 * Both assume one run per process. A scan runs PHPCS several times in one request
+	 * (baseline and target), so without a reset the second run ignores its --report-file,
+	 * --report and --extensions options and reuses the first run's testVersion.
+	 *
+	 * @return void
+	 */
+	private static function reset_phpcs_state(): void {
+		$statics = [
+			[ Config::class, 'overriddenDefaults', [] ],
+			[ ScannedCode::class, 'testVersion', null ],
+			[ ScannedCode::class, 'testVersions', null ],
+		];
+		foreach ( $statics as [ $class, $property, $value ] ) {
+			if ( ! property_exists( $class, $property ) ) {
+				continue;
+			}
+			$reflection = new ReflectionProperty( $class, $property );
+			if ( PHP_VERSION_ID < 80100 ) {
+				$reflection->setAccessible( true ); // Required before PHP 8.1, deprecated in 8.5.
+			}
+			$reflection->setValue( null, $value );
+		}
+	}
+
+	/**
 	 * Embedded PHPCS runner without shell access.
 	 *
 	 * @param string $php_minor        Target PHP version (major.minor).
@@ -262,8 +295,15 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			$argv            = array_merge( [ 'phpcs' ], $args );
 			$GLOBALS['argv'] = $argv; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
 			$_SERVER['argv'] = $argv;
-			$runner          = new Runner();
-			$runner->runPHPCS();
+			self::reset_phpcs_state();
+			$runner = new Runner();
+			// PHPCS prints its timing line to stdout, which would corrupt the AJAX JSON response.
+			ob_start();
+			try {
+				$runner->runPHPCS();
+			} finally {
+				ob_end_clean();
+			}
 			// Restore argv globals.
 			if ( null !== $argv_backup ) {
 				$GLOBALS['argv'] = $argv_backup; // phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedVariableFound
@@ -977,29 +1017,35 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$job['updated'] = time();
 		self::save_job( $job );
 		if ( $idx < $total ) {
-			$target         = $targets[ $idx ];
-			$runtime        = isset( $job['runtime'] ) ? (string) $job['runtime'] : self::get_runtime_major_minor();
-			$tver           = isset( $job['target'] ) ? (string) $job['target'] : '';
-			$warn           = ! empty( $job['include_warnings'] );
-			$excl           = isset( $job['extra_excludes'] ) && is_array( $job['extra_excludes'] ) ? $job['extra_excludes'] : [];
-			$paths          = [ (string) $target['path'] ];
-			list(, $json1,) = self::phpcs_scan_paths( $runtime, $warn, $paths, $excl );
-			list(, $json2,) = self::phpcs_scan_paths( $tver, $warn, $paths, $excl );
-			$report1        = is_string( $json1 ) && '' !== $json1 ? json_decode( $json1, true ) : null;
-			$report2        = is_string( $json2 ) && '' !== $json2 ? json_decode( $json2, true ) : null;
-			if ( is_array( $report1 ) && is_array( $report2 ) ) {
+			$target                       = $targets[ $idx ];
+			$runtime                      = isset( $job['runtime'] ) ? (string) $job['runtime'] : self::get_runtime_major_minor();
+			$tver                         = isset( $job['target'] ) ? (string) $job['target'] : '';
+			$warn                         = ! empty( $job['include_warnings'] );
+			$excl                         = isset( $job['extra_excludes'] ) && is_array( $job['extra_excludes'] ) ? $job['extra_excludes'] : [];
+			$paths                        = [ (string) $target['path'] ];
+			list( $code1, $json1, $err1 ) = self::phpcs_scan_paths( $runtime, $warn, $paths, $excl );
+			list( $code2, $json2, $err2 ) = self::phpcs_scan_paths( $tver, $warn, $paths, $excl );
+			$report1                      = is_string( $json1 ) && '' !== $json1 ? json_decode( $json1, true ) : null;
+			$report2                      = is_string( $json2 ) && '' !== $json2 ? json_decode( $json2, true ) : null;
+			$messages                     = [];
+			$error                        = '';
+			if ( 0 === $code1 && 0 === $code2 && is_array( $report1 ) && is_array( $report2 ) ) {
 				$delta = self::compute_delta( $report1, $report2 );
 				if ( count( $delta ) > self::PER_PLUGIN_MSG_LIMIT ) {
 					$delta = array_slice( $delta, 0, self::PER_PLUGIN_MSG_LIMIT );
 				}
 				$messages = $delta;
+			} elseif ( 0 !== $code1 || ! is_array( $report1 ) ) {
+				// A failed run must never be reported as "no issues".
+				$error = 'Baseline scan (PHP ' . $runtime . ') failed: ' . ( '' !== $err1 ? $err1 : 'no report produced.' );
 			} else {
-				$messages = [];
+				$error = 'Target scan (PHP ' . $tver . ') failed: ' . ( '' !== $err2 ? $err2 : 'no report produced.' );
 			}
 			$key                       = (string) $target['key'];
 			$job['per_target'][ $key ] = [
 				'issues'   => count( $messages ),
 				'messages' => $messages,
+				'error'    => $error,
 				'type'     => (string) $target['type'],
 				'slug'     => (string) $target['slug'],
 				'label'    => (string) $target['label'],
@@ -1023,7 +1069,11 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			$results = [];
 			foreach ( $targets as $t ) {
 				if ( 'plugin' === $t['type'] ) {
-					$entry                 = $per_target[ $t['key'] ] ?? [];
+					$entry = $per_target[ $t['key'] ] ?? [];
+					// No badge for a failed scan; an "OK" badge would claim compatibility.
+					if ( ! empty( $entry['error'] ) ) {
+						continue;
+					}
 					$results[ $t['slug'] ] = [ 'issues' => (int) ( $entry['issues'] ?? 0 ) ];
 				}
 			}
@@ -1056,10 +1106,15 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$html          .= '<h2>Results: Baseline ' . self::h( $runtime ) . ' → Target ' . self::h( $selected_target ) . '</h2>';
 		$groups_plugins = [];
 		$groups_themes  = [];
+		$failed         = [];
 		foreach ( $targets as $t ) {
 			$key   = (string) $t['key'];
 			$entry = $per_target[ $key ] ?? [];
 			$cnt   = (int) ( $entry['issues'] ?? 0 );
+			if ( ! empty( $entry['error'] ) ) {
+				$failed[ (string) $t['label'] ] = (string) $entry['error'];
+				continue;
+			}
 			if ( $cnt > 0 && isset( $entry['messages'] ) && is_array( $entry['messages'] ) ) {
 				if ( 'plugin' === $t['type'] ) {
 					$groups_plugins[ $t['slug'] ] = $entry['messages'];
@@ -1068,7 +1123,17 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 				}
 			}
 		}
+		if ( ! empty( $failed ) ) {
+			$html .= '<div class="notice notice-error"><p>These items could not be scanned, so their compatibility is unknown:</p><ul>';
+			foreach ( $failed as $label => $reason ) {
+				$html .= '<li><strong>' . self::h( (string) $label ) . '</strong>: ' . self::h( $reason ) . '</li>';
+			}
+			$html .= '</ul></div>';
+		}
 		if ( empty( $groups_plugins ) && empty( $groups_themes ) ) {
+			if ( ! empty( $failed ) ) {
+				return $html;
+			}
 			$html .= '<div class="notice notice-success"><p>All selected items show no new issues for PHP ' . self::h( $selected_target ) . ' compared to ' . self::h( $runtime ) . '. Compatible.</p></div>';
 			return $html;
 		}

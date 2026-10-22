@@ -14,7 +14,7 @@ This plugin scans your installed plugins and themes for potential PHP compatibil
 PHP Compatibility Scanner helps you assess whether your site’s code (plugins and themes) is likely to run on newer versions of PHP. It performs static analysis using PHP_CodeSniffer and the PHPCompatibilityWP ruleset to flag code patterns that are incompatible with the selected target PHP version.
 
 What the plugin does (at a glance):
-- Compares your current runtime PHP (baseline) to a selected target PHP version (8.0–8.4).
+- Compares your current runtime PHP (baseline) to a selected target PHP version (8.0–8.5).
 - Scans plugins and themes, then highlights only the new issues that would appear on the target version (the “delta”).
 - Shows results in a clear report on the Tools screen and adds small badges on the Plugins list screen.
 - Lets you pause, resume, or stop a running scan.
@@ -24,7 +24,7 @@ Important limitations of static analysis:
 
 == Features ==
 
-- Select a target PHP version (8.0, 8.1, 8.2, 8.3, 8.4)
+- Select a target PHP version (8.0, 8.1, 8.2, 8.3, 8.4, 8.5)
 - Scan all plugins or select specific ones
 - Scan all themes or select specific ones, with an option to also scan a parent if a child theme is selected
 - Pause/Resume/Stop controls for long scans
@@ -33,16 +33,16 @@ Important limitations of static analysis:
 
 == Installation ==
 
-1. Install the plugin via Plugins → Add New → Upload Plugin, or place the `bld-php-compatibility-checker` folder into `wp-content/plugins/`.
+1. Install the plugin via Plugins → Add New → Upload Plugin, or place the `brightleaf-digital-php-compatibility-scanner` folder into `wp-content/plugins/`.
 2. Activate the plugin through the “Plugins” menu in WordPress.
-3. Go to Tools → PHP Compatibility Checker.
+3. Go to Tools → PHP Compatibility Scanner.
 4. Choose a Target PHP version higher than your current runtime.
 5. Select what to scan (plugins and/or themes) and click “Run scan”.
 
 == Frequently Asked Questions ==
 
 = What PHP versions can I target? =
-You can select one of: 8.0, 8.1, 8.2, 8.3, or 8.4.
+You can select one of: 8.0, 8.1, 8.2, 8.3, 8.4, or 8.5.
 
 = What is the minimum PHP version required to run this plugin? =
 The plugin requires PHP 7.4+ to run.
@@ -58,6 +58,11 @@ No. MU-plugins are intentionally skipped.
 
 = Do I need WP-Cron for scans? =
 No. Scans advance via AJAX polling while the Tools page is open.
+
+== Screenshots ==
+1. The scan report on the Tools screen, listing only the new issues that would appear on the target PHP version.
+2. Compatibility badges on the Plugins screen summarizing the last scan for each plugin.
+3. A long scan paused partway through. Scans can be paused, resumed or stopped at any time.
 
 == Privacy ==
 All analysis runs locally on your server. No data is sent to external services by this plugin.
