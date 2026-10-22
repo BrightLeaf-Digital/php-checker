@@ -170,9 +170,12 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	}
 
 	/**
-     * List plugin directory slugs in WP_PLUGIN_DIR.
+     * List plugin slugs in WP_PLUGIN_DIR.
      *
-     * @return array<string> Plugin directory names.
+     * Directory plugins are listed by directory name; single-file plugins (e.g. hello.php)
+     * by file name.
+     *
+     * @return array<string> Plugin directory or file names.
      */
 	private static function list_plugins(): array {
 		$base = WP_PLUGIN_DIR;
@@ -180,13 +183,23 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		if ( false === $dirs || ! is_array( $dirs ) ) {
 			return [];
 		}
-		$plugins = [];
+		if ( ! function_exists( 'get_plugins' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		// Only root-level files WordPress recognizes as plugins, so index.php and the like are skipped.
+		$single_file = array_filter(
+			array_keys( get_plugins() ),
+			static function ( $file ) {
+				return false === strpos( (string) $file, '/' );
+			}
+		);
+		$plugins     = [];
 		foreach ( $dirs as $d ) {
 			if ( '.' === $d || '..' === $d ) {
 				continue;
 			}
 			$path = $base . '/' . $d;
-			if ( is_dir( $path ) ) {
+			if ( is_dir( $path ) || ( is_file( $path ) && in_array( $d, $single_file, true ) ) ) {
 				$plugins[] = $d;
 			}
 		}
@@ -263,9 +276,10 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	 * @return array{0:int,1:string,2:string,3:string}
 	 */
 	private static function run_phpcs_embedded( string $php_minor, bool $include_warnings, array $paths, array $extra_excludes ): array {
-		$json = '';
-		$err  = '';
-		$cmd  = 'embedded-phpcs';
+		$json        = '';
+		$err         = '';
+		$cmd         = 'embedded-phpcs';
+		$report_file = '';
 		try {
 			$report_file = wp_tempnam( 'phpcs-report' );
 			if ( ! $report_file ) {
@@ -319,6 +333,9 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		} catch ( Throwable $e ) {
 			$err  = $e->getMessage();
 			$code = 1;
+		}
+		if ( $report_file && file_exists( $report_file ) ) {
+			wp_delete_file( $report_file );
 		}
 		return [ $code, $json, $err, $cmd ];
 	}
@@ -466,7 +483,9 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$opt = get_option( self::OPT_LAST_SCAN );
 		if ( ! is_array( $opt ) || empty( $opt['results'] ) ) {
 			return $meta; }
-		$slug = dirname( plugin_basename( $file ) );
+		$basename = plugin_basename( $file );
+		// Single-file plugins (e.g. hello.php) are keyed by file name, others by directory.
+		$slug = false === strpos( $basename, '/' ) ? $basename : dirname( $basename );
 		if ( isset( $opt['results'][ $slug ] ) ) {
 			$info    = $opt['results'][ $slug ];
 			$runtime = isset( $opt['runtime'] ) ? (string) $opt['runtime'] : '';
@@ -537,6 +556,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 
 		echo '<div class="notice notice-info" style="border-left-color: #00a0d2;">';
 		echo '<p>💡 <strong>Need more tools?</strong> Check out our other awesome plugins on <a href="https://brightleafdigital.io/" target="_blank" rel="noopener noreferrer">our website</a>!</p>';
+		echo '<p>🧩 Browse our free <a href="https://brightleafdigital.io/code/" target="_blank" rel="noopener noreferrer">code snippet library</a>, and manage snippets with GitHub-based version control using <a href="https://brightleafdigital.io/gravityops-code-snippet-manager/" target="_blank" rel="noopener noreferrer">GravityOps Code Snippet Manager</a>.</p>';
 		echo '</div>';
 
 		echo '<form id="brightleaf-digital-php-checker-form" method="post">';
