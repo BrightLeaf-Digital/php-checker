@@ -479,13 +479,16 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
      * @param string $file Plugin file path.
      * @return array Modified row meta with badge (if available).
      */
- 	public static function plugin_row_meta_note( array $meta, string $file ): array {
+	public static function plugin_row_meta_note( $meta, $file ) {
+		if ( ! is_array( $meta ) || ! is_string( $file ) ) {
+			return $meta;
+		}
 		$opt = get_option( self::OPT_LAST_SCAN );
 		if ( ! is_array( $opt ) || empty( $opt['results'] ) ) {
 			return $meta; }
 		$basename = plugin_basename( $file );
 		// Single-file plugins (e.g. hello.php) are keyed by file name, others by directory.
-		$slug = false === strpos( $basename, '/' ) ? $basename : dirname( $basename );
+		$slug = ! str_contains( $basename, '/' ) ? $basename : dirname( $basename );
 		if ( isset( $opt['results'][ $slug ] ) ) {
 			$info    = $opt['results'][ $slug ];
 			$runtime = isset( $opt['runtime'] ) ? (string) $opt['runtime'] : '';
