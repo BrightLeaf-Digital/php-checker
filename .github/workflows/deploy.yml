@@ -1,0 +1,23 @@
+name: Deploy to WordPress.org
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (optional, overrides tag)'
+        required: false
+        type: string
+  push:
+    tags:
+      - '*'
+jobs:
+  trigger-workflow:
+    uses: BrightLeaf-Digital/.github/.github/workflows/deploy.yml@main
+    with:
+      product_id: 'gopcs'
+      version: ${{ github.event.inputs.version }}
+      zip_files: 'assets vendor class-brightleaf-digital-php-checker-plugin.php readme.txt'
+    secrets:
+      BLD_API_KEY: ${{ secrets.BLD_API_KEY }}
+      WP_SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
+      WP_SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
+      SSH_PRIVATE_KEY_GRAVITYOPS_CORE: ${{ secrets.SSH_PRIVATE_KEY_GRAVITYOPS_CORE }}

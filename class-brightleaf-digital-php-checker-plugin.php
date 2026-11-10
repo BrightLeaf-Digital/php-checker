@@ -9,6 +9,7 @@
  * Requires PHP: 7.4
  */
 
+use GravityOps\Core\SuiteCore\SuiteCore;
 use PHP_CodeSniffer\Config;
 use PHP_CodeSniffer\Runner;
 use PHPCompatibility\Helpers\ScannedCode;
@@ -16,6 +17,36 @@ use PHPCompatibility\Helpers\ScannedCode;
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
+	require_once __DIR__ . '/vendor/autoload.php';
+}
+
+if ( file_exists( __DIR__ . '/vendor/GOPCS/autoload.php' ) ) {
+	require_once __DIR__ . '/vendor/GOPCS/autoload.php';
+}
+
+// Register this plugin with SuiteCore early so the latest provider can be selected.
+add_action(
+	'plugins_loaded',
+	function () {
+		if ( ! class_exists( SuiteCore::class ) ) {
+			return;
+		}
+		if ( file_exists( __DIR__ . '/vendor/GOPCS/gravityops/core/assets/' ) ) {
+			$assets_base_url = plugins_url( 'vendor/GOPCS/gravityops/core/assets/', __FILE__ );
+		} else {
+			$assets_base_url = plugins_url( 'vendor/gravityops/core/assets/', __FILE__ );
+		}
+
+		SuiteCore::register(
+			[
+				'assets_base_url' => $assets_base_url,
+			]
+		);
+	},
+	1
+);
 
 /**
  * Main plugin class for PHP Compatibility Scanner.
@@ -42,13 +73,6 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
      * - Registers AJAX handler for scans.
      */
 	public static function init(): void {
-		if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
-			require_once __DIR__ . '/vendor/autoload.php';
-		}
-		// PHPCS 3.x does not register its classes with Composer; it ships its own autoloader.
-		if ( ! class_exists( Runner::class ) && file_exists( __DIR__ . '/vendor/squizlabs/php_codesniffer/autoload.php' ) ) {
-			require_once __DIR__ . '/vendor/squizlabs/php_codesniffer/autoload.php';
-		}
 		add_action( 'admin_menu', [ __CLASS__, 'register_tools_page' ] );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_bootstrap' ] );
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
@@ -240,6 +264,33 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	}
 
 	/**
+	 * Load the bundled PHP_CodeSniffer only when a scan starts.
+	 *
+	 * PHPCS 3.x does not register its classes with Composer; it ships its own
+	 * autoloader. Loading it lazily keeps it off every other request. When another
+	 * plugin (for example Plugin Check) has already declared PHPCS, its copy, standards
+	 * and static state are not ours, so the scan is refused instead of mixing them.
+	 *
+	 * @return string Empty on success, otherwise a message explaining the failure.
+	 */
+	private static function load_phpcs(): string {
+		static $loaded = false;
+		if ( $loaded ) {
+			return '';
+		}
+		if ( class_exists( Runner::class, false ) || class_exists( 'PHP_CodeSniffer\\Autoload', false ) ) {
+			return 'Another plugin has already loaded PHP_CodeSniffer (for example Plugin Check). Deactivate it while scanning, then try again.';
+		}
+		$autoloader = __DIR__ . '/vendor/squizlabs/php_codesniffer/autoload.php';
+		if ( ! file_exists( $autoloader ) ) {
+			return 'The bundled PHP_CodeSniffer is missing. Reinstall the plugin.';
+		}
+		require_once $autoloader;
+		$loaded = true;
+		return '';
+	}
+
+	/**
 	 * Reset the static state PHPCS and PHPCompatibility keep between runs.
 	 *
 	 * Both assume one run per process. A scan runs PHPCS several times in one request
@@ -280,6 +331,10 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$err         = '';
 		$cmd         = 'embedded-phpcs';
 		$report_file = '';
+		$load_error  = self::load_phpcs();
+		if ( '' !== $load_error ) {
+			return [ 1, '', $load_error, $cmd ];
+		}
 		try {
 			$report_file = wp_tempnam( 'phpcs-report' );
 			if ( ! $report_file ) {
