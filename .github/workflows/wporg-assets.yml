@@ -12,7 +12,8 @@ jobs:
   assets:
     uses: BrightLeaf-Digital/.github/.github/workflows/wporg-assets.yml@main
     with:
-      plugin_slug: 'brightleaf-digital-php-compatibility-scanner'
+      product_id: 'gopcs'
     secrets:
+      BLD_API_KEY: ${{ secrets.BLD_API_KEY }}
       WP_SVN_USERNAME: ${{ secrets.SVN_USERNAME }}
       WP_SVN_PASSWORD: ${{ secrets.SVN_PASSWORD }}
