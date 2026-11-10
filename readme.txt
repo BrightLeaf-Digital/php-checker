@@ -64,8 +64,24 @@ No. Scans advance via AJAX polling while the Tools page is open.
 2. Compatibility badges on the Plugins screen summarizing the last scan for each plugin.
 3. A long scan paused partway through. Scans can be paused, resumed or stopped at any time.
 
-== Privacy ==
-All analysis runs locally on your server. No data is sent to external services by this plugin.
+== Community Help ==
+
+For how-to questions and examples of what others have built, visit the [GravityOps Help community](https://brightleafdigital.io/community/gravityops-help/).
+
+If you opened a support thread on WordPress.org, continue that conversation there. The community is an additional place for help and ideas.
+
+== External services ==
+
+Scanning runs entirely on your server. Your code and scan results are never sent anywhere.
+
+The plugin includes the shared GravityOps library from BrightLeaf Digital, which connects to brightleafdigital.io in these cases:
+
+- **GravityOps product catalog.** When an administrator uses the WordPress admin (or shortly afterwards, through WP-Cron), the library downloads the GravityOps product catalog (names, versions, icons, links and announcements) from brightleafdigital.io, at most about twice a day. The request sends no personal data or site content; like any web request, it reveals your server's IP address.
+- **Newsletter signup.** Only if you choose to subscribe to GravityOps Weekly, the email address you enter is sent to brightleafdigital.io.
+- **Feedback prompts.** Only if you choose to answer the short GravityOps survey or open the review prompt, your answers, or the plugin and version being reviewed, are sent to brightleafdigital.io.
+- **Support access.** Only if you grant BrightLeaf Digital support access, TrustedLogin creates a temporary login and notifies BrightLeaf Digital through TrustedLogin and brightleafdigital.io.
+
+BrightLeaf Digital: [Privacy Policy](https://brightleafdigital.io/privacy/). TrustedLogin: [Authorized User Terms](https://www.trustedlogin.com/authorized-user-terms/), [Privacy Policy](https://www.trustedlogin.com/privacy-policy/).
 
 == Changelog ==
 

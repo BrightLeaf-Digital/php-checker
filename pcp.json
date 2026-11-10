@@ -1,0 +1,6 @@
+{
+  "note": "tools/ holds the Composer-time vendor cleanup script. It runs only from the command line during installs, never inside WordPress, and is not shipped: the deploy caller's zip_files lists only assets, vendor, the main plugin file and readme.txt.",
+  "ignore_codes": [],
+  "exclude_directories": ["tools"],
+  "exclude_files": []
+}
