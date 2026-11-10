@@ -1,3 +1,4 @@
+/* global brightleafDigitalPhpCheckerAjax */
 (function ($) {
 	$(function () {
 		const $form = $('#brightleaf-digital-php-checker-form');
@@ -7,16 +8,23 @@
 
 		const $results = $('#brightleaf-digital-php-checker-results');
 		const ajaxCfg =
-			typeof brightleaf_digital_php_checker_Ajax !== 'undefined'
-				? brightleaf_digital_php_checker_Ajax
+			typeof brightleafDigitalPhpCheckerAjax !== 'undefined'
+				? brightleafDigitalPhpCheckerAjax
 				: {};
 		const ajaxUrl =
 			ajaxCfg.ajaxUrl || (typeof ajaxurl !== 'undefined' ? ajaxurl : '');
 		const pollInterval = ajaxCfg.pollInterval
 			? parseInt(ajaxCfg.pollInterval, 10)
 			: 3000;
+		// Warn after this many consecutive failed status requests; give up after the second.
+		const failWarnAfter = 2;
+		const failGiveUpAfter = 10;
 		let pollTimer = null;
 		let currentJobId = null;
+		// Polls run one at a time: each status request may scan an item, so overlapping requests would race.
+		let pollInFlight = false;
+		let pollSoon = false;
+		let pollFailures = 0;
 
 		function escapeHtml(str) {
 			return $('<div/>').text(String(str)).html();
@@ -131,7 +139,33 @@
 			);
 		}
 
+		function renderPollWarning(message) {
+			let $warn = $('#blpc-poll-warning');
+			if ($warn.length === 0) {
+				$warn = $(
+					'<div id="blpc-poll-warning" class="notice notice-warning"><p></p></div>'
+				);
+				$results.append($warn);
+			}
+			$warn.find('p').text(message);
+		}
+
+		function stopPolling() {
+			clearTimeout(pollTimer);
+			pollTimer = null;
+			pollSoon = false;
+		}
+
 		function pollStatus(jobId) {
+			if (pollInFlight) {
+				// Pause/Stop asked for a prompt update; run it as soon as the current request returns.
+				pollSoon = true;
+				return;
+			}
+			clearTimeout(pollTimer);
+			pollTimer = null;
+			pollInFlight = true;
+			let keepPolling = true;
 			const data = $form.serializeArray();
 			data.push({
 				name: 'action',
@@ -141,18 +175,28 @@
 			data.push({ name: 'tick', value: 1 });
 			$.post(ajaxUrl, $.param(data))
 				.done(function (resp) {
+					if (jobId !== currentJobId) {
+						return;
+					}
+					pollFailures = 0;
 					if (!resp || !resp.success || !resp.data) {
+						const msg =
+							resp && resp.data && resp.data.message
+								? resp.data.message
+								: 'Unexpected polling response.';
 						$results.html(
-							'<div class="notice notice-error"><p>Unexpected polling response.</p></div>'
+							'<div class="notice notice-error"><p>' +
+								escapeHtml(msg) +
+								'</p></div>'
 						);
-						clearInterval(pollTimer);
-						pollTimer = null;
+						keepPolling = false;
+						currentJobId = null;
+						$('#blpc-controls').remove();
 						return;
 					}
 					const d = resp.data;
 					if (d.status === 'done' || d.status === 'cancelled') {
-						clearInterval(pollTimer);
-						pollTimer = null;
+						keepPolling = false;
 						currentJobId = null;
 						$('#blpc-controls').remove();
 						$results.html(
@@ -166,8 +210,7 @@
 						return;
 					}
 					if (d.status === 'error') {
-						clearInterval(pollTimer);
-						pollTimer = null;
+						keepPolling = false;
 						currentJobId = null;
 						$('#blpc-controls').remove();
 						const safe = escapeHtml(d.message || 'Scan failed.');
@@ -195,8 +238,58 @@
 						d.message || ''
 					);
 				})
-				.fail(function () {
-					/* keep polling */
+				.fail(function (xhr) {
+					if (jobId !== currentJobId) {
+						return;
+					}
+					pollFailures++;
+					const httpStatus =
+						xhr && xhr.status ? ' (HTTP ' + xhr.status + ')' : '';
+					if (pollFailures >= failGiveUpAfter) {
+						keepPolling = false;
+						currentJobId = null;
+						$('#blpc-controls').remove();
+						$results.html(
+							'<div class="notice notice-error"><p>' +
+								escapeHtml(
+									'The scan stopped responding' +
+										httpStatus +
+										' after ' +
+										pollFailures +
+										' failed status requests. Reload the page and try again, or scan fewer items at once.'
+								) +
+								'</p></div>'
+						);
+						return;
+					}
+					if (pollFailures >= failWarnAfter) {
+						renderPollWarning(
+							'Status requests are failing' +
+								httpStatus +
+								'. An item may be timing out; retrying (' +
+								pollFailures +
+								' of ' +
+								failGiveUpAfter +
+								')…'
+						);
+					}
+				})
+				.always(function () {
+					pollInFlight = false;
+					if (
+						!currentJobId ||
+						(!keepPolling && currentJobId === jobId)
+					) {
+						pollSoon = false;
+						return;
+					}
+					// A newer job (or a Pause/Stop click) polls right away; otherwise wait the interval.
+					const delay =
+						pollSoon || currentJobId !== jobId ? 0 : pollInterval;
+					pollSoon = false;
+					pollTimer = setTimeout(function () {
+						pollStatus(currentJobId);
+					}, delay);
 				});
 		}
 
@@ -218,12 +311,8 @@
 							0,
 							'Job ' + currentJobId + ' created.'
 						);
-						if (pollTimer) {
-							clearInterval(pollTimer);
-						}
-						pollTimer = setInterval(function () {
-							pollStatus(currentJobId);
-						}, pollInterval);
+						stopPolling();
+						pollFailures = 0;
 						pollStatus(currentJobId);
 						return;
 					}

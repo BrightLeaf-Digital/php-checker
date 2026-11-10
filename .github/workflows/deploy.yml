@@ -15,7 +15,7 @@ jobs:
     with:
       product_id: 'gopcs'
       version: ${{ github.event.inputs.version }}
-      zip_files: 'assets vendor class-brightleaf-digital-php-checker-plugin.php readme.txt'
+      zip_files: 'assets vendor class-brightleaf-digital-php-checker-plugin.php uninstall.php readme.txt'
     secrets:
       BLD_API_KEY: ${{ secrets.BLD_API_KEY }}
       WP_SVN_USERNAME: ${{ secrets.SVN_USERNAME }}

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BrightLeaf Digital PHP Compatibility Scanner
  * Author URI: https://brightleafdigital.io/
- * Description: Scan WordPress plugins for PHP compatibility issues between current PHP and newer versions. Shows inline results and stores scan summaries.
+ * Description: Scan WordPress plugins and themes for PHP compatibility issues between current PHP and newer versions. Shows inline results and stores scan summaries.
  * Version: 1.1.0
  * Author: BrightLeaf Digital
  * License: GPL-2.0+
@@ -62,6 +62,15 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	// Badges auto-expire after 30 days by default.
 	const BADGE_TTL            = 2592000; // 30 days
 	const PER_PLUGIN_MSG_LIMIT = 300; // cap stored messages per plugin for stability
+	const MAX_ITEM_ATTEMPTS    = 3; // scan attempts per item before it is reported as failed
+	const LOCK_TTL             = 300; // job lock expiry when PHP has no time limit
+
+	/**
+	 * Name of the job lock held by the current request, released on shutdown if a fatal error skips the normal release.
+	 *
+	 * @var string
+	 */
+	private static $held_lock = '';
 
 	/**
      * Hook WordPress actions/filters for the plugin lifecycle.
@@ -78,7 +87,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
 		add_filter( 'plugin_row_meta', [ __CLASS__, 'plugin_row_meta_note' ], 10, 2 );
 		add_action( 'wp_ajax_brightleaf_digital_php_checker_scan', [ __CLASS__, 'ajax_scan' ] );
-		// Async job endpoints and cron runner.
+		// Async job endpoints; the scan advances one item per status poll.
 		add_action( 'wp_ajax_brightleaf_digital_php_checker_scan_start', [ __CLASS__, 'ajax_scan_start' ] );
 		add_action( 'wp_ajax_brightleaf_digital_php_checker_scan_status', [ __CLASS__, 'ajax_scan_status' ] );
 		add_action( 'wp_ajax_brightleaf_digital_php_checker_scan_cancel', [ __CLASS__, 'ajax_scan_cancel' ] );
@@ -518,7 +527,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			// Provide polling configuration.
 			wp_localize_script(
                 'brightleaf-digital-php-checker-admin',
-                'brightleaf_digital_php_checker_Ajax',
+                'brightleafDigitalPhpCheckerAjax',
                 [
 					'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
 					'pollInterval' => 1000,
@@ -850,7 +859,12 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	 * @return array Job data or empty array if not found.
 	 */
 	private static function get_job( string $job_id ): array {
-		$tid  = self::TRANSIENT_PREFIX . preg_replace( '/[^a-zA-Z0-9_\-]/', '', $job_id );
+		$tid = self::TRANSIENT_PREFIX . preg_replace( '/[^a-zA-Z0-9_\-]/', '', $job_id );
+		if ( ! wp_using_ext_object_cache() ) {
+			// Read the stored row, not this request's cached copy, so a Pause or Stop saved by another request is seen.
+			wp_cache_delete( '_transient_' . $tid, 'options' );
+			wp_cache_delete( '_transient_timeout_' . $tid, 'options' );
+		}
 		$data = get_transient( $tid );
 		return is_array( $data ) ? $data : [];
 	}
@@ -873,7 +887,8 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	/**
 	 * AJAX: Start a scan job asynchronously.
 	 *
-	 * Creates a job, schedules the first cron tick, and returns the job_id immediately.
+	 * Creates a job and returns the job_id immediately. No cron is used: each status
+	 * poll scans the next item.
 	 *
 	 * @return void
 	 */
@@ -1053,12 +1068,94 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	}
 
 	/**
-	 * Process one target step for the given job. Cooperative cancel/pause.
+	 * Process one target step for the given job, unless another request is already doing so.
+	 *
+	 * A slow item can outlast the poll interval, so a second status request must not scan
+	 * the same or the next item concurrently and race on the stored progress. While the
+	 * lock is held, the job is returned unchanged so the caller can report progress.
 	 *
 	 * @param string $job_id Job ID.
 	 * @return array Updated job data.
 	 */
 	private static function process_next_item( string $job_id ): array {
+		$job = self::get_job( $job_id );
+		if ( empty( $job ) ) {
+			return [];
+		}
+		$lock = self::TRANSIENT_PREFIX . preg_replace( '/[^a-zA-Z0-9_\-]/', '', $job_id );
+		if ( ! self::acquire_job_lock( $lock ) ) {
+			return $job;
+		}
+		try {
+			return self::process_next_item_locked( $job_id );
+		} finally {
+			self::release_job_lock();
+		}
+	}
+
+	/**
+	 * Take the per-job lock for the duration of one scan step.
+	 *
+	 * Uses the core upgrader lock, an atomic INSERT IGNORE on the options table, so two
+	 * simultaneous requests cannot both acquire it. The lock expires after the PHP time
+	 * limit plus a margin, and is also released when a fatal error (for example the time
+	 * limit) ends the request, so the next poll can retry the item without waiting for expiry.
+	 * WordPress' fatal error handler exits from its own shutdown function, which skips later
+	 * shutdown functions, so its message filter releases the lock too.
+	 *
+	 * @param string $lock Lock name.
+	 * @return bool True when the lock was acquired.
+	 */
+	private static function acquire_job_lock( string $lock ): bool {
+		if ( ! class_exists( WP_Upgrader::class, false ) ) {
+			require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+		}
+		$time_limit = (int) ini_get( 'max_execution_time' );
+		$ttl        = 0 < $time_limit ? $time_limit + 60 : self::LOCK_TTL;
+		if ( ! WP_Upgrader::create_lock( $lock, $ttl ) ) {
+			return false;
+		}
+		self::$held_lock = $lock;
+		register_shutdown_function( [ __CLASS__, 'release_job_lock' ] );
+		add_filter( 'wp_php_error_message', [ __CLASS__, 'release_job_lock_on_fatal' ] );
+		return true;
+	}
+
+	/**
+	 * Release the job lock when WordPress handles a fatal error during a scan step.
+	 *
+	 * @param string $message Error message HTML.
+	 * @return string Unchanged message.
+	 */
+	public static function release_job_lock_on_fatal( $message ) {
+		self::release_job_lock();
+		return $message;
+	}
+
+	/**
+	 * Release the per-job lock held by this request, if any.
+	 *
+	 * Public only so it can be registered as a shutdown function.
+	 *
+	 * @return void
+	 */
+	public static function release_job_lock(): void {
+		if ( '' === self::$held_lock ) {
+			return;
+		}
+		WP_Upgrader::release_lock( self::$held_lock );
+		self::$held_lock = '';
+	}
+
+	/**
+	 * Process one target step for the given job. Cooperative cancel/pause.
+	 *
+	 * Must be called with the job lock held.
+	 *
+	 * @param string $job_id Job ID.
+	 * @return array Updated job data.
+	 */
+	private static function process_next_item_locked( string $job_id ): array {
 		$job = self::get_job( $job_id );
 		if ( empty( $job ) ) {
 			return [];
@@ -1095,29 +1192,44 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$job['updated'] = time();
 		self::save_job( $job );
 		if ( $idx < $total ) {
-			$target                       = $targets[ $idx ];
-			$runtime                      = isset( $job['runtime'] ) ? (string) $job['runtime'] : self::get_runtime_major_minor();
-			$tver                         = isset( $job['target'] ) ? (string) $job['target'] : '';
-			$warn                         = ! empty( $job['include_warnings'] );
-			$excl                         = isset( $job['extra_excludes'] ) && is_array( $job['extra_excludes'] ) ? $job['extra_excludes'] : [];
-			$paths                        = [ (string) $target['path'] ];
-			list( $code1, $json1, $err1 ) = self::phpcs_scan_paths( $runtime, $warn, $paths, $excl );
-			list( $code2, $json2, $err2 ) = self::phpcs_scan_paths( $tver, $warn, $paths, $excl );
-			$report1                      = is_string( $json1 ) && '' !== $json1 ? json_decode( $json1, true ) : null;
-			$report2                      = is_string( $json2 ) && '' !== $json2 ? json_decode( $json2, true ) : null;
-			$messages                     = [];
-			$error                        = '';
-			if ( 0 === $code1 && 0 === $code2 && is_array( $report1 ) && is_array( $report2 ) ) {
-				$delta = self::compute_delta( $report1, $report2 );
-				if ( count( $delta ) > self::PER_PLUGIN_MSG_LIMIT ) {
-					$delta = array_slice( $delta, 0, self::PER_PLUGIN_MSG_LIMIT );
-				}
-				$messages = $delta;
-			} elseif ( 0 !== $code1 || ! is_array( $report1 ) ) {
-				// A failed run must never be reported as "no issues".
-				$error = 'Baseline scan (PHP ' . $runtime . ') failed: ' . ( '' !== $err1 ? $err1 : 'no report produced.' );
+			$target   = $targets[ $idx ];
+			$messages = [];
+			$error    = '';
+			$attempts = isset( $job['item_attempts'] ) ? (int) $job['item_attempts'] : 0;
+			if ( $attempts >= self::MAX_ITEM_ATTEMPTS ) {
+				// Earlier attempts never returned (time limit, memory, killed request), so retrying would stall the scan forever.
+				$error = 'Could not be scanned: ' . $attempts . ' attempts did not finish. It may have timed out or run out of memory.';
 			} else {
-				$error = 'Target scan (PHP ' . $tver . ') failed: ' . ( '' !== $err2 ? $err2 : 'no report produced.' );
+				// Count the attempt before scanning: a request killed mid-scan never reaches the save below.
+				$job['item_attempts'] = $attempts + 1;
+				$job['message']       = 'Scanning ' . $target['label'] . ' (' . ( $idx + 1 ) . ' / ' . $total . ')' . ( 0 < $attempts ? ', attempt ' . ( $attempts + 1 ) . ' of ' . self::MAX_ITEM_ATTEMPTS : '' ) . '…';
+				self::save_job( $job );
+				$runtime                      = isset( $job['runtime'] ) ? (string) $job['runtime'] : self::get_runtime_major_minor();
+				$tver                         = isset( $job['target'] ) ? (string) $job['target'] : '';
+				$warn                         = ! empty( $job['include_warnings'] );
+				$excl                         = isset( $job['extra_excludes'] ) && is_array( $job['extra_excludes'] ) ? $job['extra_excludes'] : [];
+				$paths                        = [ (string) $target['path'] ];
+				list( $code1, $json1, $err1 ) = self::phpcs_scan_paths( $runtime, $warn, $paths, $excl );
+				list( $code2, $json2, $err2 ) = self::phpcs_scan_paths( $tver, $warn, $paths, $excl );
+				$report1                      = is_string( $json1 ) && '' !== $json1 ? json_decode( $json1, true ) : null;
+				$report2                      = is_string( $json2 ) && '' !== $json2 ? json_decode( $json2, true ) : null;
+				if ( 0 === $code1 && 0 === $code2 && is_array( $report1 ) && is_array( $report2 ) ) {
+					$delta = self::compute_delta( $report1, $report2 );
+					if ( count( $delta ) > self::PER_PLUGIN_MSG_LIMIT ) {
+						$delta = array_slice( $delta, 0, self::PER_PLUGIN_MSG_LIMIT );
+					}
+					$messages = $delta;
+				} elseif ( 0 !== $code1 || ! is_array( $report1 ) ) {
+					// A failed run must never be reported as "no issues".
+					$error = 'Baseline scan (PHP ' . $runtime . ') failed: ' . ( '' !== $err1 ? $err1 : 'no report produced.' );
+				} else {
+					$error = 'Target scan (PHP ' . $tver . ') failed: ' . ( '' !== $err2 ? $err2 : 'no report produced.' );
+				}
+				// Pick up a Pause or Stop requested while the item was being scanned instead of overwriting it.
+				$fresh = self::get_job( $job_id );
+				if ( ! empty( $fresh ) ) {
+					$job = $fresh;
+				}
 			}
 			$key                       = (string) $target['key'];
 			$job['per_target'][ $key ] = [
@@ -1130,6 +1242,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			];
 			++$idx;
 			$job['current_index'] = $idx;
+			$job['item_attempts'] = 0;
 			$job['progress']      = (int) floor( ( $idx / $total ) * 100 );
 			$job['message']       = 'Processed ' . $idx . ' / ' . $total . ' items…';
 			$job['updated']       = time();
@@ -1185,9 +1298,15 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 		$groups_plugins = [];
 		$groups_themes  = [];
 		$failed         = [];
+		$not_scanned    = [];
 		foreach ( $targets as $t ) {
-			$key   = (string) $t['key'];
-			$entry = $per_target[ $key ] ?? [];
+			$key = (string) $t['key'];
+			// A stopped scan never reached this item, so it has no result at all.
+			if ( ! isset( $per_target[ $key ] ) ) {
+				$not_scanned[] = (string) $t['label'];
+				continue;
+			}
+			$entry = $per_target[ $key ];
 			$cnt   = (int) ( $entry['issues'] ?? 0 );
 			if ( ! empty( $entry['error'] ) ) {
 				$failed[ (string) $t['label'] ] = (string) $entry['error'];
@@ -1208,8 +1327,16 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			}
 			$html .= '</ul></div>';
 		}
+		if ( ! empty( $not_scanned ) ) {
+			$count = count( $not_scanned );
+			$html .= '<div class="notice notice-warning"><p>Scan stopped — ' . (int) $count . ' ' . ( 1 === $count ? 'item was' : 'items were' ) . ' not scanned, so their compatibility is unknown:</p><ul>';
+			foreach ( $not_scanned as $label ) {
+				$html .= '<li><strong>' . self::h( $label ) . '</strong></li>';
+			}
+			$html .= '</ul></div>';
+		}
 		if ( empty( $groups_plugins ) && empty( $groups_themes ) ) {
-			if ( ! empty( $failed ) ) {
+			if ( ! empty( $failed ) || ! empty( $not_scanned ) ) {
 				return $html;
 			}
 			$html .= '<div class="notice notice-success"><p>All selected items show no new issues for PHP ' . self::h( $selected_target ) . ' compared to ' . self::h( $runtime ) . '. Compatible.</p></div>';
