@@ -3,7 +3,7 @@ Contributors: eitanatbrightleaf
 Tags: php, compatibility, plugins, themes, scan
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.1.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -84,6 +84,12 @@ The plugin includes the shared GravityOps library from BrightLeaf Digital, which
 BrightLeaf Digital: [Privacy Policy](https://brightleafdigital.io/privacy/). TrustedLogin: [Authorized User Terms](https://www.trustedlogin.com/authorized-user-terms/), [Privacy Policy](https://www.trustedlogin.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.1.0 | Nov 10, 2026 =
+- Joins the GravityOps suite: the plugin now includes the shared GravityOps library, which adds the GravityOps dashboard with other free and premium tools, announcements and an optional newsletter signup.
+- The scanning engine now loads only while a scan is running, keeping it off every other admin page. If another plugin has already loaded its own copy of the engine (for example Plugin Check), the scan stops with a clear message instead of giving unreliable results.
+- Fixed a possible error on the Plugins screen when another plugin passes unexpected plugin information.
+- Added a Community Help section and an External services section to this readme.
 
 = 1.0.2 | Oct 22, 2026 =
 - Fix: scans reported every plugin and theme as compatible because the scanning engine did not load.
