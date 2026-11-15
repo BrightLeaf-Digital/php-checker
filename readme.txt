@@ -3,7 +3,7 @@ Contributors: eitanatbrightleaf
 Tags: php, compatibility, plugins, themes, scan
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -101,6 +101,11 @@ BrightLeaf Digital: [Privacy Policy](https://brightleafdigital.io/privacy/). Tru
 
 == Changelog ==
 
+= 1.1.2 | Nov 15, 2026 =
+- Added a one-time request to rate the plugin on WordPress.org, shown after two completed scans or two weeks, whichever comes first. You can dismiss it or ask to be reminded later; uninstalling removes its saved settings.
+- Added an FAQ on what to do with scan results, and a note about BrightLeaf Digital.
+- Updated the GravityOps shared library.
+
 = 1.1.1 | Nov 11, 2026 =
 - Fixed a stopped scan sometimes reporting every plugin as compatible. Items the scan never reached are now listed as not scanned.
 - Fixed slow plugins being scanned twice at the same time, which could garble the progress of large scans.
@@ -125,11 +130,3 @@ BrightLeaf Digital: [Privacy Policy](https://brightleafdigital.io/privacy/). Tru
 
 = 1.0.1 =
 - Add support for PHP 8.5
-
-= 1.0.0 =
-- Initial release
-- Scans plugins and themes against target PHP versions (8.0–8.4)
-- Pause/Resume/Stop controls
-- CLI-first engine with embedded fallback
-- AJAX-driven progress (no WP-Cron)
-- Plugin list badges for the last scan summary
