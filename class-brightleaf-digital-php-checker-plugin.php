@@ -57,7 +57,12 @@ add_action(
  */
 class BrightLeaf_Digital_Php_Checker_Plugin {
 	const OPT_LAST_SCAN    = 'brightleaf_digital_php_checker_last_scan_results';
+	const OPT_SCAN_COUNT   = 'brightleaf_digital_php_checker_scan_count';
 	const TRANSIENT_PREFIX = 'brightleaf_digital_php_checker_job_';
+	// Review prompt: shown after this many completed scans or 14 days, whichever comes first.
+	const REVIEW_PREFIX    = 'brightleaf_digital_php_checker_';
+	const REVIEW_THRESHOLD = 2;
+	const REVIEW_URL       = 'https://wordpress.org/support/plugin/brightleaf-digital-php-compatibility-scanner/reviews/#new-post';
 	const JOB_TTL          = 21600; // 6 hours
 	// Badges auto-expire after 30 days by default.
 	const BADGE_TTL            = 2592000; // 30 days
@@ -84,6 +89,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 	public static function init(): void {
 		add_action( 'admin_menu', [ __CLASS__, 'register_tools_page' ] );
 		add_action( 'admin_init', [ __CLASS__, 'maybe_bootstrap' ] );
+		add_action( 'admin_init', [ __CLASS__, 'maybe_prompt_review' ] );
 		add_action( 'admin_enqueue_scripts', [ __CLASS__, 'enqueue_assets' ] );
 		add_filter( 'plugin_row_meta', [ __CLASS__, 'plugin_row_meta_note' ], 10, 2 );
 		add_action( 'wp_ajax_brightleaf_digital_php_checker_scan', [ __CLASS__, 'ajax_scan' ] );
@@ -113,6 +119,35 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 				delete_option( self::OPT_LAST_SCAN );
 			}
 		}
+	}
+
+	/**
+	 * Ask for a wp.org review once enough scans have completed or 14 days have passed.
+	 *
+	 * @return void
+	 */
+	public static function maybe_prompt_review(): void {
+		if ( ! class_exists( SuiteCore::class ) ) {
+			return;
+		}
+
+		$review_prompter = SuiteCore::instance()->review_prompter(
+			self::REVIEW_PREFIX,
+			'PHP Compatibility Scanner',
+			self::REVIEW_URL,
+			'manage_options'
+		);
+		$review_prompter->init();
+		$review_prompter->maybe_show_review_request( (int) get_option( self::OPT_SCAN_COUNT, 0 ), self::REVIEW_THRESHOLD );
+	}
+
+	/**
+	 * Count a completed scan toward the review prompt.
+	 *
+	 * @return void
+	 */
+	private static function record_completed_scan(): void {
+		update_option( self::OPT_SCAN_COUNT, (int) get_option( self::OPT_SCAN_COUNT, 0 ) + 1, false );
 	}
 
 	/**
@@ -765,9 +800,10 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			],
 			false
 		);
+		self::record_completed_scan();
 
 		$html .= '<hr />';
-		$html .= '<h2>Results: Baseline ' . self::h( $runtime ) . ' → Target ' . self::h( $selected_target ) . '</h2>';
+		$html .= '<h2>Results: Baseline' . self::h( $runtime ) . ' → Target ' . self::h( $selected_target ) . '</h2>';
 
 		if ( empty( $groups ) ) {
 			$html .= '<div class="notice notice-success"><p>All selected plugins show no new issues for PHP ' . self::h( $selected_target ) . ' compared to ' . self::h( $runtime ) . '. Compatible.</p></div>';
@@ -1256,6 +1292,7 @@ class BrightLeaf_Digital_Php_Checker_Plugin {
 			$job['message']    = 'Completed.';
 			$job['progress']   = 100;
 			$job['updated']    = time();
+			self::record_completed_scan();
 			// Persist plugin badges.
 			$results = [];
 			foreach ( $targets as $t ) {

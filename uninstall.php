@@ -17,6 +17,9 @@ function brightleaf_digital_php_checker_uninstall_site() {
 	global $wpdb;
 
 	delete_option( 'brightleaf_digital_php_checker_last_scan_results' );
+	delete_option( 'brightleaf_digital_php_checker_scan_count' );
+	delete_option( 'brightleaf_digital_php_checker_rating_asked' );
+	delete_option( 'brightleaf_digital_php_checker_review_started_at' );
 
 	$like  = $wpdb->esc_like( 'brightleaf_digital_php_checker_job_' ) . '%';
 	$names = $wpdb->get_col( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- One-time uninstall cleanup of this plugin's own rows.
