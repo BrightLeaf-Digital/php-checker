@@ -13,6 +13,8 @@ This plugin scans your installed plugins and themes for potential PHP compatibil
 
 PHP Compatibility Scanner helps you assess whether your site’s code (plugins and themes) is likely to run on newer versions of PHP. It performs static analysis using PHP_CodeSniffer and the PHPCompatibilityWP ruleset to flag code patterns that are incompatible with the selected target PHP version.
 
+From [BrightLeaf Digital](https://brightleafdigital.io/), makers of the GravityOps add-ons for Gravity Forms.
+
 What the plugin does (at a glance):
 - Compares your current runtime PHP (baseline) to a selected target PHP version (8.0–8.5).
 - Scans plugins and themes, then highlights only the new issues that would appear on the target version (the “delta”).
@@ -58,6 +60,20 @@ No. MU-plugins are intentionally skipped.
 
 = Do I need WP-Cron for scans? =
 No. Scans advance via AJAX polling while the Tools page is open.
+
+= What should I do with the results? =
+Each row in the report is a new issue: code that is flagged on the target PHP version but not on the version your site runs now. Those are the spots that may break after you upgrade. Issues that already appear on your current version are left out, because your site is already running with them.
+
+For each plugin or theme listed as not compatible:
+
+1. Check for an update. Authors often fix PHP compatibility in newer releases. Update (ideally on a staging site) and scan again.
+2. If you already have the latest version, contact the plugin or theme author. Share the File, Line and Message columns from the report and ask whether they support the target PHP version. The flagged code may never run on your site, or may be a false positive, and the author can tell you.
+3. If the author has no fix planned or the plugin or theme is no longer maintained, find a maintained replacement before you upgrade PHP.
+4. Scan again after each update or replacement, until the item shows no new issues.
+
+Errors and warnings: an ERROR is code that was removed or changed in the target version and is likely to cause a fatal error or broken behavior. A WARNING is usually a deprecation: it still works on the target version but is likely to break in a later one. Warnings are hidden unless you tick "Include warnings". Resolve errors before you upgrade; warnings can be planned for later.
+
+Items listed as "could not be scanned" or "not scanned" have unknown compatibility. Select them and scan again.
 
 == Screenshots ==
 1. The scan report on the Tools screen, listing only the new issues that would appear on the target PHP version.
