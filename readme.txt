@@ -1,7 +1,7 @@
 === BrightLeaf Digital PHP Compatibility Scanner ===
 Contributors: eitanatbrightleaf
 Tags: php, compatibility, plugins, themes, scan
-Tested up to: 7.1
+Tested up to: 7.2
 Requires PHP: 7.4
 Stable tag: 1.1.2
 License: GPLv2 or later
